@@ -7,7 +7,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export const createCheckoutSession = async (req, res) => {
   try {
-    const { items } = req.body; // from Postman, send array of { name, price, quantity }
+    const { items } = req.body; // from Postman, send array of { productId, name, price, quantity }
 
     const lineItems = items.map((item) => ({
       price_data: {
@@ -32,7 +32,7 @@ export const createCheckoutSession = async (req, res) => {
         quantity: item.quantity,
         price: item.price
       }))),
-      userId: "U12345"
+      userId: req.userid
     }
     });
 
@@ -41,7 +41,6 @@ export const createCheckoutSession = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
 
 export const verifyPayment = async (req, res) => {
   try {
@@ -52,27 +51,25 @@ export const verifyPayment = async (req, res) => {
       const userId = req.userid;
       const cartItems = JSON.parse(session.metadata.cart);
 
-      // ✅ Create Order
+      // ✅ Create order with nested orderItems in one go
       const order = await prisma.order.create({
         data: {
           userId,
-          total: session.amount_total / 100, 
+          total: session.amount_total / 100,
           status: "CONFIRMED",
+          items: {
+            create: cartItems.map((item) => ({
+              quantity: item.quantity,
+              price: item.price,
+              productId: item.productId,
+              userId,
+            })),
+          },
+        },
+        include: {
+          items: true, // fetch order items in response
         },
       });
-
-      
-      for (const item of cartItems) {
-        await prisma.orderItem.create({
-          data: {
-            quantity: item.quantity,
-            price: item.price,
-            orderId: order.id,
-            productId: item.productId,
-            userId,
-          },
-        });
-      }
 
       return res.json({ success: true, message: "Order confirmed", order });
     } else {
